@@ -149,39 +149,39 @@
             startBtn.innerHTML = '<i data-lucide="alert-triangle" class="w-5 h-5 mr-2"></i> 無法在此環境執行';
             lucide.createIcons();
         } else {
-            // 動態載入函式庫 (更新為 Tango v2 最新版 API)
+            // 動態載入函式庫 (鎖定為最穩定且測試通過的 0.0.26 版本，並透過 jsDelivr 載入)
             async function loadWebAdb() {
-                log('開始從雲端下載 WebADB (Tango v2) 核心套件...', 'system');
+                log('開始從雲端下載 WebADB 核心套件 (v0.0.26 穩定版)...', 'system');
 
                 try {
                     // 嘗試連線至伺服器 jsDelivr ESM
                     log('正在連線至 jsDelivr (esm.run)...', 'info');
-                    const adbModule = await import('https://esm.run/@yume-chan/adb@2');
-                    const credModule = await import('https://esm.run/@yume-chan/adb-credential-web@2');
-                    const usbModule = await import('https://esm.run/@yume-chan/adb-daemon-webusb@2');
-                    const streamModule = await import('https://esm.run/@yume-chan/stream-extra@2');
+                    const adbModule = await import('https://esm.run/@yume-chan/adb@0.0.26');
+                    const credModule = await import('https://esm.run/@yume-chan/adb-credential-web@0.0.26');
+                    const usbModule = await import('https://esm.run/@yume-chan/adb-backend-webusb@0.0.26');
+                    const streamModule = await import('https://esm.run/@yume-chan/stream-extra@0.0.26');
                     
                     log('核心套件下載成功！', 'success');
                     return {
                         Adb: adbModule.Adb,
                         AdbDaemonTransport: adbModule.AdbDaemonTransport,
-                        AdbWebCredentialStore: credModule.default || credModule.AdbWebCredentialStore,
+                        DefaultCredentialStore: credModule.DefaultCredentialStore,
                         AdbDaemonWebUsbDeviceManager: usbModule.AdbDaemonWebUsbDeviceManager,
                         DecodeUtf8Stream: streamModule.DecodeUtf8Stream
                     };
                 } catch (e) {
                     log(`主要伺服器連線失敗 (${e.message})，嘗試備用伺服器...`, 'error');
-                    // 嘗試 esm.sh 備援
-                    const adbModule = await import('https://esm.sh/@yume-chan/adb@2');
-                    const credModule = await import('https://esm.sh/@yume-chan/adb-credential-web@2');
-                    const usbModule = await import('https://esm.sh/@yume-chan/adb-daemon-webusb@2');
-                    const streamModule = await import('https://esm.sh/@yume-chan/stream-extra@2');
+                    // 嘗試 esm.sh 備援 (移除可能導致錯誤的 bundle 參數)
+                    const adbModule = await import('https://esm.sh/@yume-chan/adb@0.0.26');
+                    const credModule = await import('https://esm.sh/@yume-chan/adb-credential-web@0.0.26');
+                    const usbModule = await import('https://esm.sh/@yume-chan/adb-backend-webusb@0.0.26');
+                    const streamModule = await import('https://esm.sh/@yume-chan/stream-extra@0.0.26');
                     
                     log('備用伺服器下載成功！', 'success');
                     return {
                         Adb: adbModule.Adb,
                         AdbDaemonTransport: adbModule.AdbDaemonTransport,
-                        AdbWebCredentialStore: credModule.default || credModule.AdbWebCredentialStore,
+                        DefaultCredentialStore: credModule.DefaultCredentialStore,
                         AdbDaemonWebUsbDeviceManager: usbModule.AdbDaemonWebUsbDeviceManager,
                         DecodeUtf8Stream: streamModule.DecodeUtf8Stream
                     };
@@ -220,9 +220,9 @@
                         log(`成功選定設備 (序號: ${device.serial})`, 'success');
                         log('正在建立連接並交換金鑰... (請留意手機是否跳出「允許 USB 偵錯」視窗，並點擊允許)', 'info');
                         
-                        // 連接並驗證 (Tango v2 寫法)
+                        // 連接並驗證 (0.0.26 寫法)
                         const connection = await device.connect();
-                        const credentialStore = new libs.AdbWebCredentialStore();
+                        const credentialStore = new libs.DefaultCredentialStore();
                         const transport = await libs.AdbDaemonTransport.authenticate({
                             serial: device.serial,
                             connection,
@@ -237,8 +237,8 @@
                         const command = 'sh /sdcard/Android/data/moe.shizuku.privileged.api/start.sh';
                         log(`準備執行啟動指令: ${command}`, 'system');
 
-                        // 執行 Shizuku 啟動指令 (使用 Tango v2 新版 API)
-                        const process = await adb.subprocess.shell(command);
+                        // 執行 Shizuku 啟動指令 (使用 0.0.26 穩定版 API spawn)
+                        const process = await adb.subprocess.spawn(command);
                         
                         log('--- 來自手機的輸出 ---', 'info');
                         
