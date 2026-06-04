@@ -148,13 +148,11 @@
             startBtn.innerHTML = '<i data-lucide="alert-triangle" class="w-5 h-5 mr-2"></i> 無法在此環境執行';
             lucide.createIcons();
         } else {
-            // 自動追蹤最新版 (無特定版本號)，避免 404 找不到檔案
             async function loadWebAdb() {
                 log('開始從雲端自動獲取 WebADB 最新發布版本...', 'system');
 
                 try {
                     log('嘗試透過 esm.sh 載入套件...', 'info');
-                    // 拔除所有 @2.6.0，讓伺服器自行對應最新存在的版本
                     const [adbModule, usbModule, credModule, streamModule] = await Promise.all([
                         import('https://esm.sh/@yume-chan/adb'),
                         import('https://esm.sh/@yume-chan/adb-daemon-webusb'),
@@ -184,11 +182,10 @@
             loadWebAdb().then((libs) => {
                 log('✅ 系統準備就緒！請確認手機已連接電腦，並點擊上方按鈕。', 'success');
                 
-                // 動態擷取 API (相容各個版本)
                 const Adb = libs.adbModule.Adb;
                 const AdbDaemonTransport = libs.adbModule.AdbDaemonTransport;
                 const AdbDaemonWebUsbDeviceManager = libs.usbModule.AdbDaemonWebUsbDeviceManager;
-                const DefaultCredentialStore = libs.credModule.DefaultCredentialStore || libs.credModule.AdbWebCredentialStore || libs.credModule.default;
+                const CredentialStoreClass = libs.credModule.AdbWebCredentialStore || libs.credModule.DefaultCredentialStore || libs.credModule.default;
                 const DecodeUtf8Stream = libs.streamModule.DecodeUtf8Stream;
 
                 startBtn.disabled = false;
@@ -213,15 +210,24 @@
                         }
 
                         log(`成功選定設備 (序號: ${device.serial})`, 'success');
-                        log('正在建立連接並交換金鑰... (請留意手機是否跳出「允許 USB 偵錯」視窗，並點擊允許)', 'info');
                         
+                        log('正在連接底層 USB 介面...', 'system');
                         const connection = await device.connect();
-                        const credentialStore = new DefaultCredentialStore();
-                        const transport = await AdbDaemonTransport.authenticate({
-                            serial: device.serial,
-                            connection,
-                            credentialStore,
-                        });
+                        
+                        // 帶入自訂 ID 來強制新版 API 產生金鑰
+                        const credentialStore = new CredentialStoreClass('shizuku-web-activator');
+                        
+                        log('正在建立 ADB 握手協議並交換金鑰... (等待手機回應中)', 'info');
+                        
+                        // 【防卡死機制】加入 15 秒逾時判斷。如果 15 秒內手機沒反應，主動中斷並提示排除步驟。
+                        const transport = await Promise.race([
+                            AdbDaemonTransport.authenticate({
+                                serial: device.serial,
+                                connection,
+                                credentialStore,
+                            }),
+                            new Promise((_, reject) => setTimeout(() => reject(new Error('TIMEOUT_NO_RESPONSE')), 15000))
+                        ]);
 
                         log('設備授權與連接成功！', 'success');
                         
@@ -229,7 +235,6 @@
                         const command = 'sh /sdcard/Android/data/moe.shizuku.privileged.api/start.sh';
                         log(`準備執行啟動指令: ${command}`, 'system');
 
-                        // 智慧化執行模式判斷 (無論新舊版都能自動抓對指令)
                         let process;
                         if (adb.subprocess && adb.subprocess.shell) {
                             process = await adb.subprocess.shell(command);
@@ -243,7 +248,6 @@
                         
                         log('--- 來自手機的輸出 ---', 'info');
                         
-                        // 輸出流綁定
                         const stdoutStream = process.stdout || process.output;
                         if (stdoutStream) {
                             stdoutStream.pipeThrough(new DecodeUtf8Stream()).pipeTo(new WritableStream({
@@ -270,11 +274,20 @@
                         log('您可以拔除傳輸線，並打開手機上的 Shizuku 應用程式檢查是否顯示「正在運行」。', 'success');
 
                     } catch (error) {
-                        log(`連線或執行時發生錯誤: ${error.message}`, 'error');
-                        console.error(error);
-                        if (error.message.includes('NetworkError') || error.message.includes('Unable to claim interface')) {
-                            log('提示：您的設備可能正在被其他程式 (如電腦版 ADB) 佔用，請先關閉它們，或者您拒絕了手機上的授權。', 'error');
+                        if (error.message === 'TIMEOUT_NO_RESPONSE') {
+                            log('❌ [授權逾時] 手機沒有跳出「允許 USB 偵錯」的視窗！', 'error');
+                            log('這通常是因為 ADB 狀態卡住了。請依照以下步驟排除：', 'system');
+                            log('1. 請先【拔除傳輸線】。', 'system');
+                            log('2. 進入手機開發者選項，點擊【撤銷 USB 偵錯授權】。', 'system');
+                            log('3. 關閉 USB 偵錯，然後【重新打開 USB 偵錯】。', 'system');
+                            log('4. 重新接上傳輸線，再次點擊本網頁的啟動按鈕。', 'system');
+                        } else {
+                            log(`連線或執行時發生錯誤: ${error.message}`, 'error');
+                            if (error.message.includes('NetworkError') || error.message.includes('Unable to claim interface')) {
+                                log('提示：您的設備目前正被其他程式 (如電腦版 ADB 或其他網頁) 佔用。', 'error');
+                            }
                         }
+                        console.error(error);
                     }
                 });
 
