@@ -120,7 +120,6 @@
         const fileWarning = document.getElementById('file-warning');
         const browserWarning = document.getElementById('browser-warning');
 
-        // 日誌函數
         function log(message, type = 'info') {
             const time = new Date().toLocaleTimeString('zh-TW', { hour12: false });
             let colorClass = 'text-slate-300';
@@ -136,7 +135,6 @@
             terminal.scrollTop = terminal.scrollHeight;
         }
 
-        // 環境檢查
         let canRun = true;
         if (window.location.protocol === 'file:') {
             fileWarning.classList.remove('hidden');
@@ -150,57 +148,65 @@
             startBtn.innerHTML = '<i data-lucide="alert-triangle" class="w-5 h-5 mr-2"></i> 無法在此環境執行';
             lucide.createIcons();
         } else {
-            // 使用最新且最穩定的 v2.6.0 版本，並採用標準匯入方式 (無奇怪符號)
+            // 自動追蹤最新版 (無特定版本號)，避免 404 找不到檔案
             async function loadWebAdb() {
-                log('開始從雲端下載 WebADB 最新版 (v2.6.0)...', 'system');
+                log('開始從雲端自動獲取 WebADB 最新發布版本...', 'system');
 
                 try {
-                    // 同時且獨立地下載四個核心模組，避免任何非法的 URL 語法
+                    log('嘗試透過 esm.sh 載入套件...', 'info');
+                    // 拔除所有 @2.6.0，讓伺服器自行對應最新存在的版本
                     const [adbModule, usbModule, credModule, streamModule] = await Promise.all([
-                        import('https://cdn.jsdelivr.net/npm/@yume-chan/adb@2.6.0/+esm'),
-                        import('https://cdn.jsdelivr.net/npm/@yume-chan/adb-daemon-webusb@2.6.0/+esm'),
-                        import('https://cdn.jsdelivr.net/npm/@yume-chan/adb-credential-web@2.6.0/+esm'),
-                        import('https://cdn.jsdelivr.net/npm/@yume-chan/stream-extra@2.6.0/+esm')
+                        import('https://esm.sh/@yume-chan/adb'),
+                        import('https://esm.sh/@yume-chan/adb-daemon-webusb'),
+                        import('https://esm.sh/@yume-chan/adb-credential-web'),
+                        import('https://esm.sh/@yume-chan/stream-extra')
                     ]);
                     
-                    log('✅ 核心套件下載成功！', 'success');
-                    
-                    return {
-                        Adb: adbModule.Adb,
-                        AdbDaemonTransport: adbModule.AdbDaemonTransport,
-                        AdbDaemonWebUsbDeviceManager: usbModule.AdbDaemonWebUsbDeviceManager,
-                        DefaultCredentialStore: credModule.DefaultCredentialStore,
-                        DecodeUtf8Stream: streamModule.DecodeUtf8Stream
-                    };
-                } catch (e) {
-                    throw new Error(`下載失敗 (${e.message})`);
+                    log('✅ 核心套件 (esm.sh) 下載成功！', 'success');
+                    return { adbModule, usbModule, credModule, streamModule };
+                } catch (e1) {
+                    log(`esm.sh 下載失敗 (${e1.message})，自動切換至 esm.run 備援通道...`, 'error');
+                    try {
+                        const [adbModule, usbModule, credModule, streamModule] = await Promise.all([
+                            import('https://esm.run/@yume-chan/adb'),
+                            import('https://esm.run/@yume-chan/adb-daemon-webusb'),
+                            import('https://esm.run/@yume-chan/adb-credential-web'),
+                            import('https://esm.run/@yume-chan/stream-extra')
+                        ]);
+                        log('✅ 核心套件 (esm.run) 下載成功！', 'success');
+                        return { adbModule, usbModule, credModule, streamModule };
+                    } catch (e2) {
+                        throw new Error(`雙通道皆下載失敗。`);
+                    }
                 }
             }
 
-            // 執行載入程序
             loadWebAdb().then((libs) => {
                 log('✅ 系統準備就緒！請確認手機已連接電腦，並點擊上方按鈕。', 'success');
                 
-                // 解鎖按鈕
+                // 動態擷取 API (相容各個版本)
+                const Adb = libs.adbModule.Adb;
+                const AdbDaemonTransport = libs.adbModule.AdbDaemonTransport;
+                const AdbDaemonWebUsbDeviceManager = libs.usbModule.AdbDaemonWebUsbDeviceManager;
+                const DefaultCredentialStore = libs.credModule.DefaultCredentialStore || libs.credModule.AdbWebCredentialStore || libs.credModule.default;
+                const DecodeUtf8Stream = libs.streamModule.DecodeUtf8Stream;
+
                 startBtn.disabled = false;
                 startBtn.classList.remove('opacity-50', 'cursor-not-allowed');
                 startBtn.innerHTML = '<i data-lucide="play" class="w-5 h-5 mr-2"></i> 連接設備並啟動 Shizuku';
                 lucide.createIcons();
 
-                // 綁定點擊事件
                 startBtn.addEventListener('click', async () => {
                     try {
                         log('----------------------', 'info');
-                        log('開始初始化 WebUSB 引擎 (v2)...', 'system');
+                        log('開始初始化 WebUSB 引擎...', 'system');
                         
-                        const manager = libs.AdbDaemonWebUsbDeviceManager.BROWSER;
+                        const manager = AdbDaemonWebUsbDeviceManager.BROWSER;
                         if (!manager) {
                             throw new Error('當前瀏覽器環境不支援 WebUSB。');
                         }
 
                         log('請在瀏覽器彈出的視窗中選擇您的 Android 設備。', 'info');
-                        
-                        // 請求設備
                         const device = await manager.requestDevice();
                         if (!device) {
                             throw new Error('未選擇任何設備。操作已取消。');
@@ -209,10 +215,9 @@
                         log(`成功選定設備 (序號: ${device.serial})`, 'success');
                         log('正在建立連接並交換金鑰... (請留意手機是否跳出「允許 USB 偵錯」視窗，並點擊允許)', 'info');
                         
-                        // 連接並驗證 (Tango v2.6.0 寫法)
                         const connection = await device.connect();
-                        const credentialStore = new libs.DefaultCredentialStore();
-                        const transport = await libs.AdbDaemonTransport.authenticate({
+                        const credentialStore = new DefaultCredentialStore();
+                        const transport = await AdbDaemonTransport.authenticate({
                             serial: device.serial,
                             connection,
                             credentialStore,
@@ -220,27 +225,28 @@
 
                         log('設備授權與連接成功！', 'success');
                         
-                        // 建立 ADB 客戶端
-                        const adb = new libs.Adb(transport);
-
+                        const adb = new Adb(transport);
                         const command = 'sh /sdcard/Android/data/moe.shizuku.privileged.api/start.sh';
                         log(`準備執行啟動指令: ${command}`, 'system');
 
-                        // 執行 Shizuku 啟動指令 (相容 v2 新版 API)
+                        // 智慧化執行模式判斷 (無論新舊版都能自動抓對指令)
                         let process;
-                        if (adb.subprocess && adb.subprocess.noneProtocol && adb.subprocess.noneProtocol.spawn) {
+                        if (adb.subprocess && adb.subprocess.shell) {
+                            process = await adb.subprocess.shell(command);
+                        } else if (adb.subprocess && adb.subprocess.noneProtocol && adb.subprocess.noneProtocol.spawn) {
                             process = await adb.subprocess.noneProtocol.spawn(command);
                         } else if (adb.subprocess && adb.subprocess.spawn) {
                             process = await adb.subprocess.spawn(command);
                         } else {
-                            throw new Error('無法找到 ADB 的執行指令模組 (API 不相容)。');
+                            throw new Error('無法識別的 ADB 執行指令 API。');
                         }
                         
                         log('--- 來自手機的輸出 ---', 'info');
                         
-                        // 將輸出流轉為文字並顯示
-                        if (process.stdout) {
-                            process.stdout.pipeThrough(new libs.DecodeUtf8Stream()).pipeTo(new WritableStream({
+                        // 輸出流綁定
+                        const stdoutStream = process.stdout || process.output;
+                        if (stdoutStream) {
+                            stdoutStream.pipeThrough(new DecodeUtf8Stream()).pipeTo(new WritableStream({
                                 write(chunk) {
                                     const span = document.createElement('span');
                                     span.className = 'text-slate-400';
@@ -249,20 +255,10 @@
                                     terminal.scrollTop = terminal.scrollHeight;
                                 }
                             }));
-                        } else if (process.output) {
-                            // v2.6.0 新版的 noneProtocol 可能使用 .output
-                            process.output.pipeThrough(new libs.DecodeUtf8Stream()).pipeTo(new WritableStream({
-                                write(chunk) {
-                                    const span = document.createElement('span');
-                                    span.className = 'text-slate-400';
-                                    span.textContent = chunk;
-                                    terminal.appendChild(span);
-                                    terminal.scrollTop = terminal.scrollHeight;
-                                }
-                            }));
+                        } else {
+                            log('此版本未提供標準輸出流回傳。', 'system');
                         }
 
-                        // 等待指令執行結束
                         if (process.exit) {
                             await process.exit;
                         } else if (process.exited) {
@@ -277,7 +273,7 @@
                         log(`連線或執行時發生錯誤: ${error.message}`, 'error');
                         console.error(error);
                         if (error.message.includes('NetworkError') || error.message.includes('Unable to claim interface')) {
-                            log('提示：您的設備可能正在被其他程式 (如電腦版 ADB、Scrcpy 等) 佔用，請先關閉它們，或者您拒絕了手機上的授權。', 'error');
+                            log('提示：您的設備可能正在被其他程式 (如電腦版 ADB) 佔用，請先關閉它們，或者您拒絕了手機上的授權。', 'error');
                         }
                     }
                 });
