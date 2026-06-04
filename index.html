@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="referrer" content="no-referrer"> <!-- 終極防護：避免 CDN 因為 Referrer 政策阻擋下載 -->
+    <meta name="referrer" content="no-referrer">
     <title>Shizuku Web 一鍵啟動器</title>
     <!-- 引入 Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -150,25 +150,30 @@
             startBtn.innerHTML = '<i data-lucide="alert-triangle" class="w-5 h-5 mr-2"></i> 無法在此環境執行';
             lucide.createIcons();
         } else {
-            // 終極防攔截載入方案：使用 esm.sh 的陣列語法，強制將所有套件打包成「單一檔案 (bundle)」
+            // 使用最新且最穩定的 v2.6.0 版本，並採用標準匯入方式 (無奇怪符號)
             async function loadWebAdb() {
-                log('啟動【超級打包模式】...', 'system');
-                log('將所有分散的模組濃縮成單一檔案下載，徹底避免子模組被網路攔截。這可能需要幾秒鐘...', 'info');
+                log('開始從雲端下載 WebADB 最新版 (v2.6.0)...', 'system');
 
                 try {
-                    // 超級打包網址 (將 4 個套件一次性壓縮在一起，無 302 跳轉，無零碎依賴)
-                    const bundleUrl = 'https://esm.sh/[@yume-chan/adb@0.0.26,@yume-chan/adb-backend-webusb@0.0.26,@yume-chan/adb-credential-web@0.0.26,@yume-chan/stream-extra@0.0.26]?bundle';
-                    
-                    // 加入 30 秒逾時機制，避免雲端正在編譯時死當
-                    const libs = await Promise.race([
-                        import(bundleUrl),
-                        new Promise((_, reject) => setTimeout(() => reject(new Error('下載逾時 (超過30秒)')), 30000))
+                    // 同時且獨立地下載四個核心模組，避免任何非法的 URL 語法
+                    const [adbModule, usbModule, credModule, streamModule] = await Promise.all([
+                        import('https://cdn.jsdelivr.net/npm/@yume-chan/adb@2.6.0/+esm'),
+                        import('https://cdn.jsdelivr.net/npm/@yume-chan/adb-daemon-webusb@2.6.0/+esm'),
+                        import('https://cdn.jsdelivr.net/npm/@yume-chan/adb-credential-web@2.6.0/+esm'),
+                        import('https://cdn.jsdelivr.net/npm/@yume-chan/stream-extra@2.6.0/+esm')
                     ]);
                     
-                    log('✅ 核心套件打包下載成功！', 'success');
-                    return libs;
+                    log('✅ 核心套件下載成功！', 'success');
+                    
+                    return {
+                        Adb: adbModule.Adb,
+                        AdbDaemonTransport: adbModule.AdbDaemonTransport,
+                        AdbDaemonWebUsbDeviceManager: usbModule.AdbDaemonWebUsbDeviceManager,
+                        DefaultCredentialStore: credModule.DefaultCredentialStore,
+                        DecodeUtf8Stream: streamModule.DecodeUtf8Stream
+                    };
                 } catch (e) {
-                    throw new Error(`超級打包下載失敗 (${e.message})`);
+                    throw new Error(`下載失敗 (${e.message})`);
                 }
             }
 
@@ -186,7 +191,7 @@
                 startBtn.addEventListener('click', async () => {
                     try {
                         log('----------------------', 'info');
-                        log('開始初始化 WebUSB 引擎...', 'system');
+                        log('開始初始化 WebUSB 引擎 (v2)...', 'system');
                         
                         const manager = libs.AdbDaemonWebUsbDeviceManager.BROWSER;
                         if (!manager) {
@@ -204,7 +209,7 @@
                         log(`成功選定設備 (序號: ${device.serial})`, 'success');
                         log('正在建立連接並交換金鑰... (請留意手機是否跳出「允許 USB 偵錯」視窗，並點擊允許)', 'info');
                         
-                        // 連接並驗證
+                        // 連接並驗證 (Tango v2.6.0 寫法)
                         const connection = await device.connect();
                         const credentialStore = new libs.DefaultCredentialStore();
                         const transport = await libs.AdbDaemonTransport.authenticate({
@@ -221,24 +226,48 @@
                         const command = 'sh /sdcard/Android/data/moe.shizuku.privileged.api/start.sh';
                         log(`準備執行啟動指令: ${command}`, 'system');
 
-                        // 執行 Shizuku 啟動指令
-                        const process = await adb.subprocess.spawn(command);
+                        // 執行 Shizuku 啟動指令 (相容 v2 新版 API)
+                        let process;
+                        if (adb.subprocess && adb.subprocess.noneProtocol && adb.subprocess.noneProtocol.spawn) {
+                            process = await adb.subprocess.noneProtocol.spawn(command);
+                        } else if (adb.subprocess && adb.subprocess.spawn) {
+                            process = await adb.subprocess.spawn(command);
+                        } else {
+                            throw new Error('無法找到 ADB 的執行指令模組 (API 不相容)。');
+                        }
                         
                         log('--- 來自手機的輸出 ---', 'info');
                         
                         // 將輸出流轉為文字並顯示
-                        process.stdout.pipeThrough(new libs.DecodeUtf8Stream()).pipeTo(new WritableStream({
-                            write(chunk) {
-                                const span = document.createElement('span');
-                                span.className = 'text-slate-400';
-                                span.textContent = chunk;
-                                terminal.appendChild(span);
-                                terminal.scrollTop = terminal.scrollHeight;
-                            }
-                        }));
+                        if (process.stdout) {
+                            process.stdout.pipeThrough(new libs.DecodeUtf8Stream()).pipeTo(new WritableStream({
+                                write(chunk) {
+                                    const span = document.createElement('span');
+                                    span.className = 'text-slate-400';
+                                    span.textContent = chunk;
+                                    terminal.appendChild(span);
+                                    terminal.scrollTop = terminal.scrollHeight;
+                                }
+                            }));
+                        } else if (process.output) {
+                            // v2.6.0 新版的 noneProtocol 可能使用 .output
+                            process.output.pipeThrough(new libs.DecodeUtf8Stream()).pipeTo(new WritableStream({
+                                write(chunk) {
+                                    const span = document.createElement('span');
+                                    span.className = 'text-slate-400';
+                                    span.textContent = chunk;
+                                    terminal.appendChild(span);
+                                    terminal.scrollTop = terminal.scrollHeight;
+                                }
+                            }));
+                        }
 
                         // 等待指令執行結束
-                        await process.exit;
+                        if (process.exit) {
+                            await process.exit;
+                        } else if (process.exited) {
+                            await process.exited;
+                        }
                         
                         log('----------------------', 'info');
                         log('✅ Shizuku 啟動指令執行完畢！', 'success');
@@ -255,12 +284,6 @@
 
             }).catch(err => {
                 log(`❌ 發生致命錯誤: ${err.message}`, 'error');
-                log('⚠️ 您的瀏覽器/網路環境極度嚴格，阻擋了所有外部腳本。', 'error');
-                log('👉 解決建議：', 'system');
-                log('1. 請改用【無痕模式 (Incognito)】開啟此網頁。', 'system');
-                log('2. 關閉卡巴斯基、Avast 或任何擋廣告套件 (AdBlock)。', 'system');
-                log('3. 使用最原生的 Google Chrome 或 Microsoft Edge 瀏覽器。', 'system');
-                
                 startBtn.innerHTML = '<i data-lucide="x-circle" class="w-5 h-5 mr-2"></i> 核心元件下載失敗';
                 startBtn.classList.remove('bg-blue-600', 'hover:bg-blue-500');
                 startBtn.classList.add('bg-red-600', 'hover:bg-red-500');
