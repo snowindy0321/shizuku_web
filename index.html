@@ -149,17 +149,17 @@
             startBtn.innerHTML = '<i data-lucide="alert-triangle" class="w-5 h-5 mr-2"></i> 無法在此環境執行';
             lucide.createIcons();
         } else {
-            // 動態載入函式庫 (鎖定為最穩定且測試通過的 0.0.26 版本，並透過 jsDelivr 載入)
+            // 動態載入函式庫 (使用「直連絕對路徑」避開 CDN 302 轉址攔截)
             async function loadWebAdb() {
                 log('開始從雲端下載 WebADB 核心套件 (v0.0.26 穩定版)...', 'system');
 
                 try {
-                    // 嘗試連線至伺服器 jsDelivr ESM
-                    log('正在連線至 jsDelivr (esm.run)...', 'info');
-                    const adbModule = await import('https://esm.run/@yume-chan/adb@0.0.26');
-                    const credModule = await import('https://esm.run/@yume-chan/adb-credential-web@0.0.26');
-                    const usbModule = await import('https://esm.run/@yume-chan/adb-backend-webusb@0.0.26');
-                    const streamModule = await import('https://esm.run/@yume-chan/stream-extra@0.0.26');
+                    // 嘗試連線至 jsDelivr (+esm 直連路徑，不經過跳轉)
+                    log('正在連線至 jsDelivr (直連模式)...', 'info');
+                    const adbModule = await import('https://cdn.jsdelivr.net/npm/@yume-chan/adb@0.0.26/+esm');
+                    const credModule = await import('https://cdn.jsdelivr.net/npm/@yume-chan/adb-credential-web@0.0.26/+esm');
+                    const usbModule = await import('https://cdn.jsdelivr.net/npm/@yume-chan/adb-backend-webusb@0.0.26/+esm');
+                    const streamModule = await import('https://cdn.jsdelivr.net/npm/@yume-chan/stream-extra@0.0.26/+esm');
                     
                     log('核心套件下載成功！', 'success');
                     return {
@@ -170,21 +170,7 @@
                         DecodeUtf8Stream: streamModule.DecodeUtf8Stream
                     };
                 } catch (e) {
-                    log(`主要伺服器連線失敗 (${e.message})，嘗試備用伺服器...`, 'error');
-                    // 嘗試 esm.sh 備援 (移除可能導致錯誤的 bundle 參數)
-                    const adbModule = await import('https://esm.sh/@yume-chan/adb@0.0.26');
-                    const credModule = await import('https://esm.sh/@yume-chan/adb-credential-web@0.0.26');
-                    const usbModule = await import('https://esm.sh/@yume-chan/adb-backend-webusb@0.0.26');
-                    const streamModule = await import('https://esm.sh/@yume-chan/stream-extra@0.0.26');
-                    
-                    log('備用伺服器下載成功！', 'success');
-                    return {
-                        Adb: adbModule.Adb,
-                        AdbDaemonTransport: adbModule.AdbDaemonTransport,
-                        DefaultCredentialStore: credModule.DefaultCredentialStore,
-                        AdbDaemonWebUsbDeviceManager: usbModule.AdbDaemonWebUsbDeviceManager,
-                        DecodeUtf8Stream: streamModule.DecodeUtf8Stream
-                    };
+                    throw new Error(`直連下載失敗。`);
                 }
             }
 
@@ -220,7 +206,7 @@
                         log(`成功選定設備 (序號: ${device.serial})`, 'success');
                         log('正在建立連接並交換金鑰... (請留意手機是否跳出「允許 USB 偵錯」視窗，並點擊允許)', 'info');
                         
-                        // 連接並驗證 (0.0.26 寫法)
+                        // 連接並驗證
                         const connection = await device.connect();
                         const credentialStore = new libs.DefaultCredentialStore();
                         const transport = await libs.AdbDaemonTransport.authenticate({
@@ -271,6 +257,7 @@
 
             }).catch(err => {
                 log(`❌ 發生致命錯誤: ${err.message}`, 'error');
+                log('如果持續發生，請嘗試：\n1. 關閉瀏覽器的擋廣告套件 (AdBlock, uBlock)\n2. 若使用 Brave 瀏覽器，請關閉「Brave 護盾」\n3. 換用 Google Chrome 或 Edge 瀏覽器', 'system');
                 startBtn.innerHTML = '<i data-lucide="x-circle" class="w-5 h-5 mr-2"></i> 核心元件下載失敗';
                 startBtn.classList.remove('bg-blue-600', 'hover:bg-blue-500');
                 startBtn.classList.add('bg-red-600', 'hover:bg-red-500');
