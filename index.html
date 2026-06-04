@@ -149,35 +149,43 @@
             startBtn.innerHTML = '<i data-lucide="alert-triangle" class="w-5 h-5 mr-2"></i> 無法在此環境執行';
             lucide.createIcons();
         } else {
-            // 動態載入函式庫 (包含 CDN 備援與防呆)
+            // 動態載入函式庫 (更新為 Tango v2 最新版 API)
             async function loadWebAdb() {
-                let libs = {};
-                log('開始從雲端下載 WebADB 核心套件...', 'system');
+                log('開始從雲端下載 WebADB (Tango v2) 核心套件...', 'system');
 
                 try {
-                    // 嘗試 1：esm.sh (加上 ?bundle 參數，將零碎檔案打包成一包下載，速度最快)
-                    log('嘗試連線至主要伺服器 (esm.sh)...', 'info');
-                    libs.webusb = await import('https://esm.sh/@yume-chan/adb-backend-webusb@0.0.26?bundle');
-                    libs.adb = await import('https://esm.sh/@yume-chan/adb@0.0.26?bundle');
-                    libs.cred = await import('https://esm.sh/@yume-chan/adb-credential-web@0.0.26?bundle');
-                    libs.stream = await import('https://esm.sh/@yume-chan/stream-extra@0.0.26?bundle');
-                    log('主要伺服器下載成功！', 'success');
-                } catch (e1) {
-                    log(`主要伺服器連線失敗 (${e1.message})`, 'error');
-                    log('自動切換至備用伺服器 (jsDelivr)...', 'system');
+                    // 嘗試連線至伺服器 jsDelivr ESM
+                    log('正在連線至 jsDelivr (esm.run)...', 'info');
+                    const adbModule = await import('https://esm.run/@yume-chan/adb@2');
+                    const credModule = await import('https://esm.run/@yume-chan/adb-credential-web@2');
+                    const usbModule = await import('https://esm.run/@yume-chan/adb-daemon-webusb@2');
+                    const streamModule = await import('https://esm.run/@yume-chan/stream-extra@2');
                     
-                    try {
-                        // 嘗試 2：jsDelivr ESM 伺服器
-                        libs.webusb = await import('https://esm.run/@yume-chan/adb-backend-webusb@0.0.26');
-                        libs.adb = await import('https://esm.run/@yume-chan/adb@0.0.26');
-                        libs.cred = await import('https://esm.run/@yume-chan/adb-credential-web@0.0.26');
-                        libs.stream = await import('https://esm.run/@yume-chan/stream-extra@0.0.26');
-                        log('備用伺服器下載成功！', 'success');
-                    } catch (e2) {
-                        throw new Error(`雙重連線皆失敗。請檢查您的網路是否有擋廣告軟體 (如 AdBlock/Brave) 封鎖了模組下載。`);
-                    }
+                    log('核心套件下載成功！', 'success');
+                    return {
+                        Adb: adbModule.Adb,
+                        AdbDaemonTransport: adbModule.AdbDaemonTransport,
+                        AdbWebCredentialStore: credModule.default || credModule.AdbWebCredentialStore,
+                        AdbDaemonWebUsbDeviceManager: usbModule.AdbDaemonWebUsbDeviceManager,
+                        DecodeUtf8Stream: streamModule.DecodeUtf8Stream
+                    };
+                } catch (e) {
+                    log(`主要伺服器連線失敗 (${e.message})，嘗試備用伺服器...`, 'error');
+                    // 嘗試 esm.sh 備援
+                    const adbModule = await import('https://esm.sh/@yume-chan/adb@2');
+                    const credModule = await import('https://esm.sh/@yume-chan/adb-credential-web@2');
+                    const usbModule = await import('https://esm.sh/@yume-chan/adb-daemon-webusb@2');
+                    const streamModule = await import('https://esm.sh/@yume-chan/stream-extra@2');
+                    
+                    log('備用伺服器下載成功！', 'success');
+                    return {
+                        Adb: adbModule.Adb,
+                        AdbDaemonTransport: adbModule.AdbDaemonTransport,
+                        AdbWebCredentialStore: credModule.default || credModule.AdbWebCredentialStore,
+                        AdbDaemonWebUsbDeviceManager: usbModule.AdbDaemonWebUsbDeviceManager,
+                        DecodeUtf8Stream: streamModule.DecodeUtf8Stream
+                    };
                 }
-                return libs;
             }
 
             // 執行載入程序
@@ -196,7 +204,7 @@
                         log('----------------------', 'info');
                         log('開始初始化 WebUSB 引擎...', 'system');
                         
-                        const manager = libs.webusb.AdbDaemonWebUsbDeviceManager.BROWSER;
+                        const manager = libs.AdbDaemonWebUsbDeviceManager.BROWSER;
                         if (!manager) {
                             throw new Error('當前瀏覽器環境不支援 WebUSB。');
                         }
@@ -212,10 +220,10 @@
                         log(`成功選定設備 (序號: ${device.serial})`, 'success');
                         log('正在建立連接並交換金鑰... (請留意手機是否跳出「允許 USB 偵錯」視窗，並點擊允許)', 'info');
                         
-                        // 連接並驗證
+                        // 連接並驗證 (Tango v2 寫法)
                         const connection = await device.connect();
-                        const credentialStore = new libs.cred.DefaultCredentialStore();
-                        const transport = await libs.adb.AdbDaemonTransport.authenticate({
+                        const credentialStore = new libs.AdbWebCredentialStore();
+                        const transport = await libs.AdbDaemonTransport.authenticate({
                             serial: device.serial,
                             connection,
                             credentialStore,
@@ -224,7 +232,7 @@
                         log('設備授權與連接成功！', 'success');
                         
                         // 建立 ADB 客戶端
-                        const adb = new libs.adb.Adb(transport);
+                        const adb = new libs.Adb(transport);
 
                         const command = 'sh /sdcard/Android/data/moe.shizuku.privileged.api/start.sh';
                         log(`準備執行啟動指令: ${command}`, 'system');
@@ -235,7 +243,7 @@
                         log('--- 來自手機的輸出 ---', 'info');
                         
                         // 將輸出流轉為文字並顯示
-                        process.stdout.pipeThrough(new libs.stream.DecodeUtf8Stream()).pipeTo(new WritableStream({
+                        process.stdout.pipeThrough(new libs.DecodeUtf8Stream()).pipeTo(new WritableStream({
                             write(chunk) {
                                 const span = document.createElement('span');
                                 span.className = 'text-slate-400';
