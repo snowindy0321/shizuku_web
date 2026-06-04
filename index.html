@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="referrer" content="no-referrer"> <!-- 終極防護：避免 CDN 因為 Referrer 政策阻擋下載 -->
     <title>Shizuku Web 一鍵啟動器</title>
     <!-- 引入 Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -149,28 +150,25 @@
             startBtn.innerHTML = '<i data-lucide="alert-triangle" class="w-5 h-5 mr-2"></i> 無法在此環境執行';
             lucide.createIcons();
         } else {
-            // 動態載入函式庫 (使用「直連絕對路徑」避開 CDN 302 轉址攔截)
+            // 終極防攔截載入方案：使用 esm.sh 的陣列語法，強制將所有套件打包成「單一檔案 (bundle)」
             async function loadWebAdb() {
-                log('開始從雲端下載 WebADB 核心套件 (v0.0.26 穩定版)...', 'system');
+                log('啟動【超級打包模式】...', 'system');
+                log('將所有分散的模組濃縮成單一檔案下載，徹底避免子模組被網路攔截。這可能需要幾秒鐘...', 'info');
 
                 try {
-                    // 嘗試連線至 jsDelivr (+esm 直連路徑，不經過跳轉)
-                    log('正在連線至 jsDelivr (直連模式)...', 'info');
-                    const adbModule = await import('https://cdn.jsdelivr.net/npm/@yume-chan/adb@0.0.26/+esm');
-                    const credModule = await import('https://cdn.jsdelivr.net/npm/@yume-chan/adb-credential-web@0.0.26/+esm');
-                    const usbModule = await import('https://cdn.jsdelivr.net/npm/@yume-chan/adb-backend-webusb@0.0.26/+esm');
-                    const streamModule = await import('https://cdn.jsdelivr.net/npm/@yume-chan/stream-extra@0.0.26/+esm');
+                    // 超級打包網址 (將 4 個套件一次性壓縮在一起，無 302 跳轉，無零碎依賴)
+                    const bundleUrl = 'https://esm.sh/[@yume-chan/adb@0.0.26,@yume-chan/adb-backend-webusb@0.0.26,@yume-chan/adb-credential-web@0.0.26,@yume-chan/stream-extra@0.0.26]?bundle';
                     
-                    log('核心套件下載成功！', 'success');
-                    return {
-                        Adb: adbModule.Adb,
-                        AdbDaemonTransport: adbModule.AdbDaemonTransport,
-                        DefaultCredentialStore: credModule.DefaultCredentialStore,
-                        AdbDaemonWebUsbDeviceManager: usbModule.AdbDaemonWebUsbDeviceManager,
-                        DecodeUtf8Stream: streamModule.DecodeUtf8Stream
-                    };
+                    // 加入 30 秒逾時機制，避免雲端正在編譯時死當
+                    const libs = await Promise.race([
+                        import(bundleUrl),
+                        new Promise((_, reject) => setTimeout(() => reject(new Error('下載逾時 (超過30秒)')), 30000))
+                    ]);
+                    
+                    log('✅ 核心套件打包下載成功！', 'success');
+                    return libs;
                 } catch (e) {
-                    throw new Error(`直連下載失敗。`);
+                    throw new Error(`超級打包下載失敗 (${e.message})`);
                 }
             }
 
@@ -223,7 +221,7 @@
                         const command = 'sh /sdcard/Android/data/moe.shizuku.privileged.api/start.sh';
                         log(`準備執行啟動指令: ${command}`, 'system');
 
-                        // 執行 Shizuku 啟動指令 (使用 0.0.26 穩定版 API spawn)
+                        // 執行 Shizuku 啟動指令
                         const process = await adb.subprocess.spawn(command);
                         
                         log('--- 來自手機的輸出 ---', 'info');
@@ -257,7 +255,12 @@
 
             }).catch(err => {
                 log(`❌ 發生致命錯誤: ${err.message}`, 'error');
-                log('如果持續發生，請嘗試：\n1. 關閉瀏覽器的擋廣告套件 (AdBlock, uBlock)\n2. 若使用 Brave 瀏覽器，請關閉「Brave 護盾」\n3. 換用 Google Chrome 或 Edge 瀏覽器', 'system');
+                log('⚠️ 您的瀏覽器/網路環境極度嚴格，阻擋了所有外部腳本。', 'error');
+                log('👉 解決建議：', 'system');
+                log('1. 請改用【無痕模式 (Incognito)】開啟此網頁。', 'system');
+                log('2. 關閉卡巴斯基、Avast 或任何擋廣告套件 (AdBlock)。', 'system');
+                log('3. 使用最原生的 Google Chrome 或 Microsoft Edge 瀏覽器。', 'system');
+                
                 startBtn.innerHTML = '<i data-lucide="x-circle" class="w-5 h-5 mr-2"></i> 核心元件下載失敗';
                 startBtn.classList.remove('bg-blue-600', 'hover:bg-blue-500');
                 startBtn.classList.add('bg-red-600', 'hover:bg-red-500');
