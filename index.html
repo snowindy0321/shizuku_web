@@ -75,7 +75,7 @@
                 <div class="bg-slate-800/50 p-5 rounded-2xl border border-slate-700/50">
                     <div class="w-8 h-8 bg-slate-700 rounded-full flex items-center justify-center font-bold text-blue-400 mb-3">2</div>
                     <h3 class="font-semibold text-slate-200 mb-2">連接電腦</h3>
-                    <p class="text-sm text-slate-400">使用傳輸線將手機連接至這台電腦，如有彈出 USB 用途請選擇「僅充電」或「傳輸檔案」。</p>
+                    <p class="text-sm text-slate-400">使用傳輸線將手機連接至電腦，如有彈出 USB 用途請選擇「僅充電」或「傳輸檔案」。</p>
                 </div>
                 <div class="bg-slate-800/50 p-5 rounded-2xl border border-slate-700/50">
                     <div class="w-8 h-8 bg-slate-700 rounded-full flex items-center justify-center font-bold text-blue-400 mb-3">3</div>
@@ -103,44 +103,16 @@
                     <span class="text-xs text-slate-400 ml-2 font-mono">執行日誌</span>
                 </div>
                 <div class="p-4 h-64 overflow-y-auto terminal-scroll relative">
-                    <pre id="terminal" class="text-sm text-green-400 font-mono whitespace-pre-wrap leading-relaxed break-all">等待操作中... 請先確認手機已連接至電腦。</pre>
+                    <pre id="terminal" class="text-sm text-green-400 font-mono whitespace-pre-wrap leading-relaxed break-all"></pre>
                 </div>
             </div>
             
         </div>
     </div>
 
-    <!-- UI 與錯誤監控邏輯 -->
-    <script>
-        lucide.createIcons();
-
-        // 監控模組是否在 8 秒內載入完成
-        setTimeout(() => {
-            if (!window.__WEB_ADB_LOADED__) {
-                const btn = document.getElementById('start-btn');
-                if (btn && btn.disabled) {
-                    btn.innerHTML = '<i data-lucide="x-circle" class="w-5 h-5 mr-2"></i> 核心元件載入失敗';
-                    btn.classList.remove('bg-blue-600', 'hover:bg-blue-500');
-                    btn.classList.add('bg-red-600', 'hover:bg-red-500');
-                    lucide.createIcons();
-                    const terminal = document.getElementById('terminal');
-                    if (terminal) {
-                        terminal.innerHTML += '\n<span class="text-red-400">[系統錯誤] 無法從 CDN 下載核心套件 (逾時)。這可能是因為網路連線問題，或 Netlify 的安全設定阻擋了腳本。</span>';
-                    }
-                }
-            }
-        }, 8000);
-    </script>
-
-    <!-- 核心 WebADB 邏輯 (改為絕對路徑的靜態載入，繞過 Netlify 對動態載入的阻擋) -->
+    <!-- 核心邏輯 -->
     <script type="module">
-        import { AdbDaemonWebUsbDeviceManager } from 'https://cdn.jsdelivr.net/npm/@yume-chan/adb-backend-webusb@0.0.26/+esm';
-        import { Adb, AdbDaemonTransport } from 'https://cdn.jsdelivr.net/npm/@yume-chan/adb@0.0.26/+esm';
-        import { DefaultCredentialStore } from 'https://cdn.jsdelivr.net/npm/@yume-chan/adb-credential-web@0.0.26/+esm';
-        import { DecodeUtf8Stream } from 'https://cdn.jsdelivr.net/npm/@yume-chan/stream-extra@0.0.26/+esm';
-
-        // 標記載入成功
-        window.__WEB_ADB_LOADED__ = true;
+        lucide.createIcons();
 
         const startBtn = document.getElementById('start-btn');
         const terminal = document.getElementById('terminal');
@@ -163,9 +135,8 @@
             terminal.scrollTop = terminal.scrollHeight;
         }
 
-        let canRun = true;
-
         // 環境檢查
+        let canRun = true;
         if (window.location.protocol === 'file:') {
             fileWarning.classList.remove('hidden');
             canRun = false;
@@ -178,81 +149,124 @@
             startBtn.innerHTML = '<i data-lucide="alert-triangle" class="w-5 h-5 mr-2"></i> 無法在此環境執行';
             lucide.createIcons();
         } else {
-            // UI 恢復正常狀態
-            startBtn.disabled = false;
-            startBtn.classList.remove('opacity-50', 'cursor-not-allowed');
-            startBtn.innerHTML = '<i data-lucide="play" class="w-5 h-5 mr-2"></i> 連接設備並啟動 Shizuku';
-            lucide.createIcons();
+            // 動態載入函式庫 (包含 CDN 備援與防呆)
+            async function loadWebAdb() {
+                let libs = {};
+                log('開始從雲端下載 WebADB 核心套件...', 'system');
 
-            // 綁定按鈕點擊事件
-            startBtn.addEventListener('click', async () => {
                 try {
-                    terminal.innerHTML = ''; // 清空日誌
-                    log('開始初始化 WebUSB 引擎...', 'system');
+                    // 嘗試 1：esm.sh (加上 ?bundle 參數，將零碎檔案打包成一包下載，速度最快)
+                    log('嘗試連線至主要伺服器 (esm.sh)...', 'info');
+                    libs.webusb = await import('https://esm.sh/@yume-chan/adb-backend-webusb@0.0.26?bundle');
+                    libs.adb = await import('https://esm.sh/@yume-chan/adb@0.0.26?bundle');
+                    libs.cred = await import('https://esm.sh/@yume-chan/adb-credential-web@0.0.26?bundle');
+                    libs.stream = await import('https://esm.sh/@yume-chan/stream-extra@0.0.26?bundle');
+                    log('主要伺服器下載成功！', 'success');
+                } catch (e1) {
+                    log(`主要伺服器連線失敗 (${e1.message})`, 'error');
+                    log('自動切換至備用伺服器 (jsDelivr)...', 'system');
                     
-                    const manager = AdbDaemonWebUsbDeviceManager.BROWSER;
-                    if (!manager) {
-                        throw new Error('當前瀏覽器環境不支援 WebUSB。');
-                    }
-
-                    log('請在瀏覽器彈出的視窗中選擇您的 Android 設備。', 'info');
-                    
-                    // 請求設備
-                    const device = await manager.requestDevice();
-                    if (!device) {
-                        throw new Error('未選擇任何設備。操作已取消。');
-                    }
-
-                    log(`成功選定設備 (序號: ${device.serial})`, 'success');
-                    log('正在建立連接並交換金鑰... (請留意手機是否跳出「允許 USB 偵錯」視窗，並點擊允許)', 'info');
-                    
-                    // 連接並驗證
-                    const connection = await device.connect();
-                    const credentialStore = new DefaultCredentialStore();
-                    const transport = await AdbDaemonTransport.authenticate({
-                        serial: device.serial,
-                        connection,
-                        credentialStore,
-                    });
-
-                    log('設備授權與連接成功！', 'success');
-                    
-                    // 建立 ADB 客戶端
-                    const adb = new Adb(transport);
-
-                    const command = 'sh /sdcard/Android/data/moe.shizuku.privileged.api/start.sh';
-                    log(`準備執行啟動指令: ${command}`, 'system');
-
-                    // 執行 Shizuku 啟動指令
-                    const process = await adb.subprocess.spawn(command);
-                    
-                    log('--- 來自手機的輸出 ---', 'info');
-                    
-                    // 將輸出流轉為文字並顯示
-                    process.stdout.pipeThrough(new DecodeUtf8Stream()).pipeTo(new WritableStream({
-                        write(chunk) {
-                            const span = document.createElement('span');
-                            span.className = 'text-slate-400';
-                            span.textContent = chunk;
-                            terminal.appendChild(span);
-                            terminal.scrollTop = terminal.scrollHeight;
-                        }
-                    }));
-
-                    // 等待指令執行結束
-                    await process.exit;
-                    
-                    log('----------------------', 'info');
-                    log('✅ Shizuku 啟動指令執行完畢！', 'success');
-                    log('您可以拔除傳輸線，並打開手機上的 Shizuku 應用程式檢查是否顯示「正在運行」。', 'success');
-
-                } catch (error) {
-                    log(`連線或執行時發生錯誤: ${error.message}`, 'error');
-                    console.error(error);
-                    if (error.message.includes('NetworkError') || error.message.includes('Unable to claim interface')) {
-                        log('提示：您的設備可能正在被其他程式 (如電腦版 ADB 或其他網頁) 佔用，或者您拒絕了授權。', 'error');
+                    try {
+                        // 嘗試 2：jsDelivr ESM 伺服器
+                        libs.webusb = await import('https://esm.run/@yume-chan/adb-backend-webusb@0.0.26');
+                        libs.adb = await import('https://esm.run/@yume-chan/adb@0.0.26');
+                        libs.cred = await import('https://esm.run/@yume-chan/adb-credential-web@0.0.26');
+                        libs.stream = await import('https://esm.run/@yume-chan/stream-extra@0.0.26');
+                        log('備用伺服器下載成功！', 'success');
+                    } catch (e2) {
+                        throw new Error(`雙重連線皆失敗。請檢查您的網路是否有擋廣告軟體 (如 AdBlock/Brave) 封鎖了模組下載。`);
                     }
                 }
+                return libs;
+            }
+
+            // 執行載入程序
+            loadWebAdb().then((libs) => {
+                log('✅ 系統準備就緒！請確認手機已連接電腦，並點擊上方按鈕。', 'success');
+                
+                // 解鎖按鈕
+                startBtn.disabled = false;
+                startBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+                startBtn.innerHTML = '<i data-lucide="play" class="w-5 h-5 mr-2"></i> 連接設備並啟動 Shizuku';
+                lucide.createIcons();
+
+                // 綁定點擊事件
+                startBtn.addEventListener('click', async () => {
+                    try {
+                        log('----------------------', 'info');
+                        log('開始初始化 WebUSB 引擎...', 'system');
+                        
+                        const manager = libs.webusb.AdbDaemonWebUsbDeviceManager.BROWSER;
+                        if (!manager) {
+                            throw new Error('當前瀏覽器環境不支援 WebUSB。');
+                        }
+
+                        log('請在瀏覽器彈出的視窗中選擇您的 Android 設備。', 'info');
+                        
+                        // 請求設備
+                        const device = await manager.requestDevice();
+                        if (!device) {
+                            throw new Error('未選擇任何設備。操作已取消。');
+                        }
+
+                        log(`成功選定設備 (序號: ${device.serial})`, 'success');
+                        log('正在建立連接並交換金鑰... (請留意手機是否跳出「允許 USB 偵錯」視窗，並點擊允許)', 'info');
+                        
+                        // 連接並驗證
+                        const connection = await device.connect();
+                        const credentialStore = new libs.cred.DefaultCredentialStore();
+                        const transport = await libs.adb.AdbDaemonTransport.authenticate({
+                            serial: device.serial,
+                            connection,
+                            credentialStore,
+                        });
+
+                        log('設備授權與連接成功！', 'success');
+                        
+                        // 建立 ADB 客戶端
+                        const adb = new libs.adb.Adb(transport);
+
+                        const command = 'sh /sdcard/Android/data/moe.shizuku.privileged.api/start.sh';
+                        log(`準備執行啟動指令: ${command}`, 'system');
+
+                        // 執行 Shizuku 啟動指令
+                        const process = await adb.subprocess.spawn(command);
+                        
+                        log('--- 來自手機的輸出 ---', 'info');
+                        
+                        // 將輸出流轉為文字並顯示
+                        process.stdout.pipeThrough(new libs.stream.DecodeUtf8Stream()).pipeTo(new WritableStream({
+                            write(chunk) {
+                                const span = document.createElement('span');
+                                span.className = 'text-slate-400';
+                                span.textContent = chunk;
+                                terminal.appendChild(span);
+                                terminal.scrollTop = terminal.scrollHeight;
+                            }
+                        }));
+
+                        // 等待指令執行結束
+                        await process.exit;
+                        
+                        log('----------------------', 'info');
+                        log('✅ Shizuku 啟動指令執行完畢！', 'success');
+                        log('您可以拔除傳輸線，並打開手機上的 Shizuku 應用程式檢查是否顯示「正在運行」。', 'success');
+
+                    } catch (error) {
+                        log(`連線或執行時發生錯誤: ${error.message}`, 'error');
+                        console.error(error);
+                        if (error.message.includes('NetworkError') || error.message.includes('Unable to claim interface')) {
+                            log('提示：您的設備可能正在被其他程式 (如電腦版 ADB、Scrcpy 等) 佔用，請先關閉它們，或者您拒絕了手機上的授權。', 'error');
+                        }
+                    }
+                });
+
+            }).catch(err => {
+                log(`❌ 發生致命錯誤: ${err.message}`, 'error');
+                startBtn.innerHTML = '<i data-lucide="x-circle" class="w-5 h-5 mr-2"></i> 核心元件下載失敗';
+                startBtn.classList.remove('bg-blue-600', 'hover:bg-blue-500');
+                startBtn.classList.add('bg-red-600', 'hover:bg-red-500');
+                lucide.createIcons();
             });
         }
     </script>
