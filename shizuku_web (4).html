@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Shizuku Web 一鍵啟動器</title>
+    <!-- 引入 Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 引入 Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        body {
+            background-color: #0f172a;
+            color: #f8fafc;
+        }
+        .terminal-scroll::-webkit-scrollbar {
+            width: 8px;
+        }
+        .terminal-scroll::-webkit-scrollbar-track {
+            background: #1e293b;
+            border-radius: 4px;
+        }
+        .terminal-scroll::-webkit-scrollbar-thumb {
+            background: #475569;
+            border-radius: 4px;
+        }
+        .terminal-scroll::-webkit-scrollbar-thumb:hover {
+            background: #64748b;
+        }
+    </style>
+</head>
+<body class="min-h-screen flex items-center justify-center p-4 md:p-8 font-sans">
+    <div class="max-w-3xl w-full bg-slate-900 border border-slate-700 rounded-3xl shadow-2xl overflow-hidden">
+        
+        <!-- Header -->
+        <div class="bg-slate-800 px-6 py-5 border-b border-slate-700 flex items-center justify-between">
+            <div class="flex items-center space-x-3">
+                <div class="p-2 bg-blue-500/20 text-blue-400 rounded-lg">
+                    <i data-lucide="smartphone-charging"></i>
+                </div>
+                <h1 class="text-xl font-bold text-white">Shizuku WebUSB 啟動器</h1>
+            </div>
+            <div class="flex items-center space-x-2 text-sm text-slate-400">
+                <i data-lucide="shield-check" class="w-4 h-4 text-green-400"></i>
+                <span>完全在瀏覽器端執行，安全無虞</span>
+            </div>
+        </div>
+
+        <div class="p-6 md:p-8 space-y-8">
+            
+            <!-- 錯誤警告區塊 (預設隱藏) -->
+            <div id="file-warning" class="hidden bg-red-500/10 border border-red-500/50 rounded-xl p-4 flex items-start space-x-3">
+                <i data-lucide="alert-triangle" class="w-6 h-6 text-red-400 shrink-0 mt-0.5"></i>
+                <div class="text-sm text-red-200">
+                    <strong class="text-red-400 block text-base mb-1">無法在本地檔案模式運行</strong>
+                    WebUSB API 規定必須在 <code>https://</code> 或 <code>http://localhost</code> 環境下才能運作。請將此網頁部屬至伺服器。
+                </div>
+            </div>
+
+            <div id="browser-warning" class="hidden bg-orange-500/10 border border-orange-500/50 rounded-xl p-4 flex items-start space-x-3">
+                <i data-lucide="alert-circle" class="w-6 h-6 text-orange-400 shrink-0 mt-0.5"></i>
+                <div class="text-sm text-orange-200">
+                    <strong class="text-orange-400 block text-base mb-1">瀏覽器不支援</strong>
+                    您的瀏覽器不支援 WebUSB 功能。請使用 <strong>Windows、Mac 或 Linux 電腦端的 Google Chrome 或 Microsoft Edge</strong> 瀏覽器。
+                </div>
+            </div>
+
+            <!-- 使用步驟 -->
+            <div class="grid md:grid-cols-3 gap-4">
+                <div class="bg-slate-800/50 p-5 rounded-2xl border border-slate-700/50">
+                    <div class="w-8 h-8 bg-slate-700 rounded-full flex items-center justify-center font-bold text-blue-400 mb-3">1</div>
+                    <h3 class="font-semibold text-slate-200 mb-2">準備手機</h3>
+                    <p class="text-sm text-slate-400">進入手機設定，開啟「開發者選項」並啟用「USB 偵錯」。</p>
+                </div>
+                <div class="bg-slate-800/50 p-5 rounded-2xl border border-slate-700/50">
+                    <div class="w-8 h-8 bg-slate-700 rounded-full flex items-center justify-center font-bold text-blue-400 mb-3">2</div>
+                    <h3 class="font-semibold text-slate-200 mb-2">連接電腦</h3>
+                    <p class="text-sm text-slate-400">使用傳輸線將手機連接至這台電腦，如有彈出 USB 用途請選擇「僅充電」或「傳輸檔案」。</p>
+                </div>
+                <div class="bg-slate-800/50 p-5 rounded-2xl border border-slate-700/50">
+                    <div class="w-8 h-8 bg-slate-700 rounded-full flex items-center justify-center font-bold text-blue-400 mb-3">3</div>
+                    <h3 class="font-semibold text-slate-200 mb-2">一鍵啟用</h3>
+                    <p class="text-sm text-slate-400">點擊下方按鈕，選擇您的設備，並在手機畫面上勾選「允許 USB 偵錯」。</p>
+                </div>
+            </div>
+
+            <!-- 啟動按鈕 -->
+            <div class="flex justify-center py-2">
+                <button id="start-btn" disabled class="opacity-50 cursor-not-allowed group relative inline-flex items-center justify-center px-8 py-4 font-bold text-white transition-all duration-200 bg-blue-600 font-pj rounded-xl focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-600 hover:bg-blue-500 hover:shadow-lg hover:shadow-blue-500/30 w-full md:w-auto text-lg">
+                    <i data-lucide="loader-2" class="w-5 h-5 mr-2 animate-spin"></i>
+                    載入核心元件中...
+                </button>
+            </div>
+
+            <!-- 終端機輸出區 -->
+            <div class="bg-[#0c1017] rounded-xl border border-slate-800 overflow-hidden flex flex-col">
+                <div class="bg-slate-800/80 px-4 py-2 border-b border-slate-700/80 flex items-center space-x-2">
+                    <div class="flex space-x-1.5">
+                        <div class="w-3 h-3 rounded-full bg-red-500/80"></div>
+                        <div class="w-3 h-3 rounded-full bg-yellow-500/80"></div>
+                        <div class="w-3 h-3 rounded-full bg-green-500/80"></div>
+                    </div>
+                    <span class="text-xs text-slate-400 ml-2 font-mono">執行日誌</span>
+                </div>
+                <div class="p-4 h-64 overflow-y-auto terminal-scroll relative">
+                    <pre id="terminal" class="text-sm text-green-400 font-mono whitespace-pre-wrap leading-relaxed break-all">等待操作中... 請先確認手機已連接至電腦。</pre>
+                </div>
+            </div>
+            
+        </div>
+    </div>
+
+    <!-- UI 與錯誤監控邏輯 -->
+    <script>
+        lucide.createIcons();
+
+        // 監控模組是否在 8 秒內載入完成
+        setTimeout(() => {
+            if (!window.__WEB_ADB_LOADED__) {
+                const btn = document.getElementById('start-btn');
+                if (btn && btn.disabled) {
+                    btn.innerHTML = '<i data-lucide="x-circle" class="w-5 h-5 mr-2"></i> 核心元件載入失敗';
+                    btn.classList.remove('bg-blue-600', 'hover:bg-blue-500');
+                    btn.classList.add('bg-red-600', 'hover:bg-red-500');
+                    lucide.createIcons();
+                    const terminal = document.getElementById('terminal');
+                    if (terminal) {
+                        terminal.innerHTML += '\n<span class="text-red-400">[系統錯誤] 無法從 CDN 下載核心套件 (逾時)。這可能是因為網路連線問題，或 Netlify 的安全設定阻擋了腳本。</span>';
+                    }
+                }
+            }
+        }, 8000);
+    </script>
+
+    <!-- 核心 WebADB 邏輯 (改為絕對路徑的靜態載入，繞過 Netlify 對動態載入的阻擋) -->
+    <script type="module">
+        import { AdbDaemonWebUsbDeviceManager } from 'https://cdn.jsdelivr.net/npm/@yume-chan/adb-backend-webusb@0.0.26/+esm';
+        import { Adb, AdbDaemonTransport } from 'https://cdn.jsdelivr.net/npm/@yume-chan/adb@0.0.26/+esm';
+        import { DefaultCredentialStore } from 'https://cdn.jsdelivr.net/npm/@yume-chan/adb-credential-web@0.0.26/+esm';
+        import { DecodeUtf8Stream } from 'https://cdn.jsdelivr.net/npm/@yume-chan/stream-extra@0.0.26/+esm';
+
+        // 標記載入成功
+        window.__WEB_ADB_LOADED__ = true;
+
+        const startBtn = document.getElementById('start-btn');
+        const terminal = document.getElementById('terminal');
+        const fileWarning = document.getElementById('file-warning');
+        const browserWarning = document.getElementById('browser-warning');
+
+        // 日誌函數
+        function log(message, type = 'info') {
+            const time = new Date().toLocaleTimeString('zh-TW', { hour12: false });
+            let colorClass = 'text-slate-300';
+            if (type === 'success') colorClass = 'text-green-400';
+            if (type === 'error') colorClass = 'text-red-400';
+            if (type === 'system') colorClass = 'text-blue-400';
+            
+            const span = document.createElement('span');
+            span.className = colorClass;
+            span.textContent = `[${time}] ${message}\n`;
+            
+            terminal.appendChild(span);
+            terminal.scrollTop = terminal.scrollHeight;
+        }
+
+        let canRun = true;
+
+        // 環境檢查
+        if (window.location.protocol === 'file:') {
+            fileWarning.classList.remove('hidden');
+            canRun = false;
+        } else if (!navigator.usb) {
+            browserWarning.classList.remove('hidden');
+            canRun = false;
+        }
+
+        if (!canRun) {
+            startBtn.innerHTML = '<i data-lucide="alert-triangle" class="w-5 h-5 mr-2"></i> 無法在此環境執行';
+            lucide.createIcons();
+        } else {
+            // UI 恢復正常狀態
+            startBtn.disabled = false;
+            startBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+            startBtn.innerHTML = '<i data-lucide="play" class="w-5 h-5 mr-2"></i> 連接設備並啟動 Shizuku';
+            lucide.createIcons();
+
+            // 綁定按鈕點擊事件
+            startBtn.addEventListener('click', async () => {
+                try {
+                    terminal.innerHTML = ''; // 清空日誌
+                    log('開始初始化 WebUSB 引擎...', 'system');
+                    
+                    const manager = AdbDaemonWebUsbDeviceManager.BROWSER;
+                    if (!manager) {
+                        throw new Error('當前瀏覽器環境不支援 WebUSB。');
+                    }
+
+                    log('請在瀏覽器彈出的視窗中選擇您的 Android 設備。', 'info');
+                    
+                    // 請求設備
+                    const device = await manager.requestDevice();
+                    if (!device) {
+                        throw new Error('未選擇任何設備。操作已取消。');
+                    }
+
+                    log(`成功選定設備 (序號: ${device.serial})`, 'success');
+                    log('正在建立連接並交換金鑰... (請留意手機是否跳出「允許 USB 偵錯」視窗，並點擊允許)', 'info');
+                    
+                    // 連接並驗證
+                    const connection = await device.connect();
+                    const credentialStore = new DefaultCredentialStore();
+                    const transport = await AdbDaemonTransport.authenticate({
+                        serial: device.serial,
+                        connection,
+                        credentialStore,
+                    });
+
+                    log('設備授權與連接成功！', 'success');
+                    
+                    // 建立 ADB 客戶端
+                    const adb = new Adb(transport);
+
+                    const command = 'sh /sdcard/Android/data/moe.shizuku.privileged.api/start.sh';
+                    log(`準備執行啟動指令: ${command}`, 'system');
+
+                    // 執行 Shizuku 啟動指令
+                    const process = await adb.subprocess.spawn(command);
+                    
+                    log('--- 來自手機的輸出 ---', 'info');
+                    
+                    // 將輸出流轉為文字並顯示
+                    process.stdout.pipeThrough(new DecodeUtf8Stream()).pipeTo(new WritableStream({
+                        write(chunk) {
+                            const span = document.createElement('span');
+                            span.className = 'text-slate-400';
+                            span.textContent = chunk;
+                            terminal.appendChild(span);
+                            terminal.scrollTop = terminal.scrollHeight;
+                        }
+                    }));
+
+                    // 等待指令執行結束
+                    await process.exit;
+                    
+                    log('----------------------', 'info');
+                    log('✅ Shizuku 啟動指令執行完畢！', 'success');
+                    log('您可以拔除傳輸線，並打開手機上的 Shizuku 應用程式檢查是否顯示「正在運行」。', 'success');
+
+                } catch (error) {
+                    log(`連線或執行時發生錯誤: ${error.message}`, 'error');
+                    console.error(error);
+                    if (error.message.includes('NetworkError') || error.message.includes('Unable to claim interface')) {
+                        log('提示：您的設備可能正在被其他程式 (如電腦版 ADB 或其他網頁) 佔用，或者您拒絕了授權。', 'error');
+                    }
+                }
+            });
+        }
+    </script>
+</body>
+</html>
