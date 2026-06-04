@@ -237,8 +237,8 @@
                         const command = 'sh /sdcard/Android/data/moe.shizuku.privileged.api/start.sh';
                         log(`準備執行啟動指令: ${command}`, 'system');
 
-                        // 執行 Shizuku 啟動指令
-                        const process = await adb.subprocess.spawn(command);
+                        // 執行 Shizuku 啟動指令 (使用 Tango v2 新版 API)
+                        const process = await adb.subprocess.shell(command);
                         
                         log('--- 來自手機的輸出 ---', 'info');
                         
